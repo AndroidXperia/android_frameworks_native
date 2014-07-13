@@ -75,11 +75,6 @@ FramebufferNativeWindow::FramebufferNativeWindow()
     : BASE(), fbDev(0), grDev(0), mUpdateOnDemand(false), mDiscardQueuedBuffersCnt(0)
 {
     hw_module_t const* module;
-
-#ifdef SAMSUNG_HDMI_SUPPORT
-    mHdmiClient = android::SecHdmiClient::getInstance();
-#endif
-
     if (hw_get_module(GRALLOC_HARDWARE_MODULE_ID, &module) == 0) {
         int stride;
         int err;
@@ -97,14 +92,8 @@ FramebufferNativeWindow::FramebufferNativeWindow()
         mUpdateOnDemand = (fbDev->setUpdateRect != 0);
         
         // initialize the buffer FIFO
-        mNumBuffers = MIN_NUM_FRAME_BUFFERS;
-#ifdef QCOM_HARDWARE
-        if(fbDev->numFramebuffers >= MIN_NUM_FRAME_BUFFERS &&
-           fbDev->numFramebuffers <= MAX_NUM_FRAME_BUFFERS){
-            mNumBuffers = fbDev->numFramebuffers;
-        }
-#endif
-        mNumFreeBuffers = mNumBuffers;
+        mNumBuffers = NUM_FRAME_BUFFERS;
+        mNumFreeBuffers = NUM_FRAME_BUFFERS;
         mBufferHead = mNumBuffers-1;
 
         /*
@@ -160,17 +149,16 @@ FramebufferNativeWindow::FramebufferNativeWindow()
     ANativeWindow::queueBuffer = queueBuffer;
     ANativeWindow::query = query;
     ANativeWindow::perform = perform;
-    ANativeWindow::cancelBuffer = NULL;
+    ANativeWindow::cancelBuffer = cancelBuffer;
 }
 
 FramebufferNativeWindow::~FramebufferNativeWindow() 
 {
     if (grDev) {
-        for(int i = 0; i < mNumBuffers; i++) {
-            if (buffers[i] != NULL) {
-                grDev->free(grDev, buffers[i]->handle);
-            }
-        }
+        if (buffers[0] != NULL)
+            grDev->free(grDev, buffers[0]->handle);
+        if (buffers[1] != NULL)
+            grDev->free(grDev, buffers[1]->handle);
         gralloc_close(grDev);
     }
 
@@ -312,9 +300,7 @@ int FramebufferNativeWindow::queueBuffer(ANativeWindow* window,
         ANativeWindowBuffer* buffer)
 {
     FramebufferNativeWindow* self = getSelf(window);
-#ifndef QCOM_HARDWARE
     Mutex::Autolock _l(self->mutex);
-#endif
     framebuffer_device_t* fb = self->fbDev;
     NativeBuffer* handle = static_cast<NativeBuffer*>(buffer);
 
@@ -335,32 +321,8 @@ int FramebufferNativeWindow::queueBuffer(ANativeWindow* window,
         self->front = handle;
     }
 
-#ifdef QCOM_HARDWARE
-    Mutex::Autolock _l(self->mutex);
-#endif
     self->mNumFreeBuffers++;
     self->mCondition.broadcast();
-
-#ifdef SAMSUNG_HDMI_SUPPORT
-#if defined(SAMSUNG_EXYNOS4210) || defined(SAMSUNG_EXYNOS4x12) || defined(SAMSUNG_S5P)
-    if (self->mHdmiClient != NULL)
-        self->mHdmiClient->blit2Hdmi(buffer->width, buffer->height,
-                                    HAL_PIXEL_FORMAT_BGRA_8888,
-                                    0, 0, 0,
-                                    0, 0,
-                                    android::SecHdmiClient::HDMI_MODE_UI,
-                                    0);
-#elif defined(SAMSUNG_EXYNOS5250)
-    if (self->mHdmiClient != NULL)
-        self->mHdmiClient->blit2Hdmi(buffer->width, buffer->height,
-                                    HAL_PIXEL_FORMAT_BGRA_8888,
-                                    0, 0, 0,
-                                    0, 0,
-                                    android::SecHdmiClient::HDMI_MODE_MIRROR,
-                                    0);
-#endif
-#endif
-
     return res;
 }
 
@@ -368,9 +330,7 @@ int FramebufferNativeWindow::query(const ANativeWindow* window,
         int what, int* value) 
 {
     const FramebufferNativeWindow* self = getSelf(window);
-#ifndef QCOM_HARDWARE
     Mutex::Autolock _l(self->mutex);
-#endif
     framebuffer_device_t* fb = self->fbDev;
     switch (what) {
         case NATIVE_WINDOW_WIDTH:
