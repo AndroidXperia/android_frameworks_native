@@ -114,6 +114,8 @@ public:
 
     status_t linkToComposerDeath(const sp<IBinder::DeathRecipient>& recipient,
             void* cookie = NULL, uint32_t flags = 0);
+    // Set how to handle the external device output cases
+    static status_t setHDMIOutputMode(uint32_t mode = 0);
 
     status_t    hide(SurfaceID id);
     status_t    show(SurfaceID id, int32_t layer = -1);

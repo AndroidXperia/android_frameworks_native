@@ -292,6 +292,7 @@ void DisplayHardware::init(uint32_t dpy)
     mContext = context;
     mFormat  = fbDev->format;
     mPageFlipCount = 0;
+    mHDMIOutputMode = 0;
 
     /*
      * Gather OpenGL ES extensions
@@ -422,6 +423,61 @@ status_t DisplayHardware::compositionComplete() const {
     return mNativeWindow->compositionComplete();
 }
 
+status_t DisplayHardware::rotate(unsigned int absoluteDegree)
+{
+    status_t ret;
+
+    if (mDisplay != eglGetCurrentDisplay() ||
+        mContext != eglGetCurrentContext() ||
+        mSurface != eglGetCurrentSurface(EGL_DRAW) ||
+        mSurface != eglGetCurrentSurface(EGL_READ)) {
+        ALOGW("Wrong current context/surface, display hw rotation disabled. Multiple"
+            " instances of DisplayHardware? Has surface flinger started using non"
+            "-DisplayHardware contexts?");
+        return UNKNOWN_ERROR;
+    }
+
+    /*
+     * Destroy surface, rotate FB and then re-create the surface to force EGL to notice
+     * the change.
+     */
+
+    /*
+     * We don't want to see any half rendered frames sent to the window as a result
+     * of the destroy process.
+     */
+    mNativeWindow->discardQueuedBuffers(true);
+
+    eglMakeCurrent(mDisplay, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+    /*
+     * No need to worry about the content as everything is repainted after a rotate
+     * (even when it fails, in which case the rotation will be done in gl).
+     */
+    eglDestroySurface(mDisplay, mSurface);
+
+    mNativeWindow->discardQueuedBuffers(false);
+
+    ret = mNativeWindow->rotate(absoluteDegree);
+
+    mSurface = eglCreateWindowSurface(mDisplay, mConfig, mNativeWindow.get(), NULL);
+    if (mSurface == EGL_NO_SURFACE)
+        ALOGE("Failed to re-create surface (error %i). Not handled, corrupt state!",
+            eglGetError());
+    eglMakeCurrent(mDisplay, mSurface, mSurface, mContext);
+
+    eglQuerySurface(mDisplay, mSurface, EGL_WIDTH,  &mWidth);
+    eglQuerySurface(mDisplay, mSurface, EGL_HEIGHT, &mHeight);
+
+    if (mHwc->initCheck() == NO_ERROR) {
+        mHwc->setFrameBuffer(mDisplay, mSurface);
+    }
+
+    mDpiX = mNativeWindow->xdpi;
+    mDpiY = mNativeWindow->ydpi;
+
+    return ret;
+}
+
 void DisplayHardware::flip(const Region& dirty) const
 {
     checkGLErrors();
@@ -473,4 +529,53 @@ void DisplayHardware::makeCurrent() const
 void DisplayHardware::dump(String8& res) const
 {
     mNativeWindow->dump(res);
+}
+
+void DisplayHardware::handleHDMIModeChange(uint32_t mode) const
+{
+    /*
+     * HDMIMirroring is enabled when the UI should be mirrored on the
+     * external device. In some cases e.g. HDMI_MODE_CLONE
+     * the UI is not mirrored when overlay is mirrored.
+     */
+    switch (mode) {
+        case HDMI_MODE_OFF:
+            mNativeWindow->enableHDMIMirroring(false);
+            if (mHwc->initCheck() == NO_ERROR)
+                mHwc->setParameter(HWC_HDMI_PLUGGED, 0);
+            break;
+        case HDMI_MODE_CLONE:
+                mNativeWindow->enableHDMIMirroring(true);
+            if (mHwc->initCheck() == NO_ERROR)
+                mHwc->setParameter(HWC_HDMI_PLUGGED, 1);
+            break;
+        case HDMI_MODE_CLONE_UI_ONLY:
+            mNativeWindow->enableHDMIMirroring(true);
+            if (mHwc->initCheck() == NO_ERROR)
+                mHwc->setParameter(HWC_HDMI_PLUGGED, 1);
+            break;
+        case HDMI_MODE_CLONE_OVERLAY_ONLY:
+            mNativeWindow->enableHDMIMirroring(false);
+            if (mHwc->initCheck() == NO_ERROR)
+                mHwc->setParameter(HWC_HDMI_PLUGGED, 0);
+            break;
+        default:
+            mNativeWindow->enableHDMIMirroring(false);
+            if (mHwc->initCheck() == NO_ERROR)
+                mHwc->setParameter(HWC_HDMI_PLUGGED, 0);
+    }
+}
+
+void DisplayHardware::UIRotationChange(int uiRotation) const
+{
+    mNativeWindow->UIRotationChange(uiRotation);
+}
+
+status_t DisplayHardware::setHDMIOutputMode(uint32_t mode) const
+{
+    if (mHDMIOutputMode != mode) {
+        mHDMIOutputMode = mode;
+        handleHDMIModeChange(mHDMIOutputMode);
+    }
+    return 0;
 }

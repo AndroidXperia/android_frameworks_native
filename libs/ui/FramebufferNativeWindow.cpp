@@ -71,8 +71,8 @@ private:
  * 
  */
 
-FramebufferNativeWindow::FramebufferNativeWindow() 
-    : BASE(), fbDev(0), grDev(0), mUpdateOnDemand(false)
+FramebufferNativeWindow::FramebufferNativeWindow()
+    : BASE(), fbDev(0), grDev(0), mUpdateOnDemand(false), mDiscardQueuedBuffersCnt(0)
 {
     hw_module_t const* module;
 
@@ -195,6 +195,50 @@ status_t FramebufferNativeWindow::compositionComplete()
     return INVALID_OPERATION;
 }
 
+void FramebufferNativeWindow::UIRotationChange(int uiRotation)
+{
+    if (fbDev->UIRotationChange)
+        fbDev->UIRotationChange(fbDev, uiRotation);
+}
+
+void FramebufferNativeWindow::enableHDMIMirroring(bool enable)
+{
+    if (fbDev->enableHDMIMirroring)
+        fbDev->enableHDMIMirroring(fbDev, enable);
+}
+
+status_t FramebufferNativeWindow::rotate(unsigned int absoluteDegree)
+{
+    Mutex::Autolock _l(mutex);
+    int ret;
+
+    if (fbDev->rotate == NULL)
+        return INVALID_OPERATION;
+
+    ret = fbDev->rotate(fbDev, absoluteDegree);
+    if (ret < 0)
+        /*
+         * Android's error codes seem to match errno, at least the
+         * important stuff.
+         */
+        return ret;
+
+    const_cast<float&>(xdpi) = fbDev->xdpi;
+    const_cast<float&>(ydpi) = fbDev->ydpi;
+
+    return NO_ERROR;
+}
+
+void FramebufferNativeWindow::discardQueuedBuffers(bool on)
+{
+    Mutex::Autolock _l(mutex);
+
+    if (on)
+        mDiscardQueuedBuffersCnt++;
+    else
+        mDiscardQueuedBuffersCnt--;
+}
+
 int FramebufferNativeWindow::setSwapInterval(
         ANativeWindow* window, int interval) 
 {
@@ -239,6 +283,10 @@ int FramebufferNativeWindow::dequeueBuffer(ANativeWindow* window,
     self->mNumFreeBuffers--;
     self->mCurrentBufferIndex = index;
 
+    self->buffers[index]->width = fb->width;
+    self->buffers[index]->height = fb->height;
+    self->buffers[index]->stride = fb->stride;
+
     *buffer = self->buffers[index].get();
 
     return 0;
@@ -268,14 +316,28 @@ int FramebufferNativeWindow::queueBuffer(ANativeWindow* window,
     Mutex::Autolock _l(self->mutex);
 #endif
     framebuffer_device_t* fb = self->fbDev;
-    buffer_handle_t handle = static_cast<NativeBuffer*>(buffer)->handle;
+    NativeBuffer* handle = static_cast<NativeBuffer*>(buffer);
 
-    const int index = self->mCurrentBufferIndex;
-    int res = fb->post(fb, handle);
+    int res = 0;
+    if (self->mDiscardQueuedBuffersCnt > 0) {
+       /*
+         * Not perfect but in line with how the problem is handled
+         * for app wins which is the most important thing as EGL
+         * implementations make no difference between the FB win
+         * and app wins.
+         */
+        /* Essentially self->mBufferHead-- */
+        self->mBufferHead = (self->mBufferHead + self->mNumBuffers - 1) %
+                self->mNumBuffers;
+    } else {
+        const int index = self->mCurrentBufferIndex;
+        res = fb->post(fb, handle->handle);
+        self->front = handle;
+    }
+
 #ifdef QCOM_HARDWARE
     Mutex::Autolock _l(self->mutex);
 #endif
-    self->front = static_cast<NativeBuffer*>(buffer);
     self->mNumFreeBuffers++;
     self->mCondition.broadcast();
 
@@ -365,6 +427,27 @@ int FramebufferNativeWindow::perform(ANativeWindow* window,
             return INVALID_OPERATION;
     }
     return NAME_NOT_FOUND;
+}
+
+int FramebufferNativeWindow::cancelBuffer(ANativeWindow* window,
+        android_native_buffer_t* buffer)
+{
+    FramebufferNativeWindow* self = getSelf(window);
+    Mutex::Autolock _l(self->mutex);
+
+    /*
+     * Not perfect but in line with how the problem is handled
+     * for app wins which is the most important thing as EGL
+     * implementations make no difference between the fb window
+     * and app windows.
+     */
+    /* Essentially self->mBufferHead-- */
+    self->mBufferHead = (self->mBufferHead + self->mNumBuffers - 1) %
+        self->mNumBuffers;
+    self->mNumFreeBuffers++;
+    self->mCondition.broadcast();
+
+    return NO_ERROR;
 }
 
 // ----------------------------------------------------------------------------

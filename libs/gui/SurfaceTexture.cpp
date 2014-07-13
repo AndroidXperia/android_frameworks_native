@@ -27,6 +27,7 @@
 #include <GLES2/gl2ext.h>
 
 #include <hardware/hardware.h>
+#include <ui/PixelFormat.h>
 
 #include <gui/IGraphicBufferAlloc.h>
 #include <gui/ISurfaceComposer.h>
@@ -123,6 +124,7 @@ SurfaceTexture::SurfaceTexture(GLuint tex, bool allowSynchronousMode,
 #ifdef STE_HARDWARE
     mNextBlitSlot(0),
     mNeedsConversion(false),
+    mConvertPending(false),
 #endif
     mEglDisplay(EGL_NO_DISPLAY),
     mEglContext(EGL_NO_CONTEXT),
@@ -215,15 +217,14 @@ status_t SurfaceTexture::updateTexImage() {
     return SurfaceTexture::updateTexImage(NULL);
 #else
     return SurfaceTexture::updateTexImage(NULL, false);
-#define STE_DEFERDBG 0
 #endif
+
+status_t SurfaceTexture::updateTexImage(bool deferConversion) {
+    return SurfaceTexture::updateTexImage(NULL, deferConversion);
 }
 
-#ifndef STE_HARDWARE
-status_t SurfaceTexture::updateTexImage(BufferRejecter* rejecter) {
-#else
+#define STE_DEFERDBG 0
 status_t SurfaceTexture::updateTexImage(BufferRejecter* rejecter, bool deferConversion) {
-#endif
     ATRACE_CALL();
     ST_LOGV("updateTexImage");
     Mutex::Autolock lock(mMutex);
@@ -879,6 +880,12 @@ bool SurfaceTexture::isSynchronousMode() const {
 
 void SurfaceTexture::freeBufferLocked(int slotIndex) {
     ST_LOGV("freeBufferLocked: slotIndex=%d", slotIndex);
+
+    // Check is we have a pending conversion before free.
+    if (mConvertPending) {
+        convert();
+    }
+
     mEGLSlots[slotIndex].mGraphicBuffer = 0;
     if (slotIndex == mCurrentTexture) {
         mCurrentTexture = BufferQueue::INVALID_BUFFER_SLOT;

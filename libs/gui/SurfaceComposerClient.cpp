@@ -419,6 +419,12 @@ status_t SurfaceComposerClient::setFreezeTint(SurfaceID id, uint32_t tint) {
     return getComposer().setFreezeTint(this, id, tint);
 }
 
+status_t SurfaceComposerClient::setHDMIOutputMode(uint32_t mode)
+{
+    sp<ISurfaceComposer> sm(getComposerService());
+    return sm->setHDMIOutputMode(mode);
+}
+
 status_t SurfaceComposerClient::setPosition(SurfaceID id, float x, float y) {
     return getComposer().setPosition(this, id, x, y);
 }

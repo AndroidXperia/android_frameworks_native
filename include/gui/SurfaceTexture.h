@@ -42,6 +42,7 @@ namespace android {
 // ----------------------------------------------------------------------------
 
 
+class IGraphicBufferAlloc;
 class String8;
 
 class SurfaceTexture : public virtual RefBase,
@@ -100,6 +101,11 @@ public:
     status_t updateTexImage();
 
 #ifdef STE_HARDWARE
+    // A surface that uses a non-native format requires conversion of
+    // its buffers. This conversion can be deferred until the layer
+    // based on this surface is drawn.
+    status_t updateTexImage(bool deferConversion);
+
     // convert() performs the deferred texture conversion as scheduled
     // by updateTexImage(bool deferConversion).
     // The method returns immediately if no conversion is necessary.
@@ -428,6 +434,10 @@ private:
     // is called. It is cleared once the layer is drawn,
     // or when updateTexImage() w/o deferred conversion is called.
     bool mNeedsConversion;
+
+    // mConvertPending indicates that the the object is in a deferred
+    // state and mNeedsConversion is true.
+    bool mConvertPending;
 #endif
 
     // mEglContext is the OpenGL ES context with which this SurfaceTexture is

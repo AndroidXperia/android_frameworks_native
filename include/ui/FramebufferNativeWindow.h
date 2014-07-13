@@ -32,8 +32,9 @@
 #include "SecHdmiClient.h"
 #endif
 
-#define MIN_NUM_FRAME_BUFFERS  2
-#define MAX_NUM_FRAME_BUFFERS  3
+#ifndef NUM_FRAME_BUFFERS
+#define NUM_FRAME_BUFFERS  2
+#endif
 
 extern "C" EGLNativeWindowType android_createDisplaySurface(void);
 
@@ -64,7 +65,13 @@ public:
     status_t setUpdateRectangle(const Rect& updateRect);
     status_t compositionComplete();
 
+    status_t rotate(unsigned int absoluteDegree);
+
+    void discardQueuedBuffers(bool on);
+
     void dump(String8& result);
+    void UIRotationChange(int uiRotation);
+    void enableHDMIMirroring(bool enable);
 
     // for debugging only
     int getCurrentBufferIndex() const;
@@ -78,6 +85,8 @@ private:
     static int queueBuffer(ANativeWindow* window, ANativeWindowBuffer* buffer);
     static int query(const ANativeWindow* window, int what, int* value);
     static int perform(ANativeWindow* window, int operation, ...);
+
+    static int cancelBuffer(ANativeWindow* window, android_native_buffer_t* buffer);
     
     framebuffer_device_t* fbDev;
     alloc_device_t* grDev;
@@ -92,6 +101,7 @@ private:
     int32_t mBufferHead;
     int32_t mCurrentBufferIndex;
     bool mUpdateOnDemand;
+    int mDiscardQueuedBuffersCnt;
 #ifdef SAMSUNG_HDMI_SUPPORT
     SecHdmiClient *mHdmiClient;
 #endif

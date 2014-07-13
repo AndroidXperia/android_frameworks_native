@@ -80,6 +80,9 @@ public:
     // type is HWC_OVERLAY or HWC_FRAMEBUFFER
     size_t getLayerCount(int type) const;
 
+    // vendor specific hook for setting specific parameters in hwcomposer.
+    status_t setParameter(int param, int value) const;
+
     // Events handling ---------------------------------------------------------
 
     enum {

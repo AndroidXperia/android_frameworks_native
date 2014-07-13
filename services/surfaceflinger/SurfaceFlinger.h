@@ -114,9 +114,6 @@ private:
 class GraphicPlane
 {
 public:
-    static status_t orientationToTransfrom(int orientation, int w, int h,
-            Transform* tr);
-
                                 GraphicPlane();
                                 ~GraphicPlane();
 
@@ -137,14 +134,16 @@ private:
                                 GraphicPlane(const GraphicPlane&);
         GraphicPlane            operator = (const GraphicPlane&);
 
+        status_t                orientationToDegree(int orientation, unsigned int *degree) const;
+        uint32_t                degreeToOrientFlags(int degree) const;
+        unsigned int            normalizeDegree(unsigned int degree) const;
+
         DisplayHardware*        mHw;
         Transform               mGlobalTransform;
-        Transform               mDisplayTransform;
         int                     mOrientation;
-        float                   mDisplayWidth;
-        float                   mDisplayHeight;
         int                     mWidth;
         int                     mHeight;
+        int                     mDisplayRotation;
 };
 
 // ---------------------------------------------------------------------------
@@ -190,6 +189,8 @@ public:
 
     virtual status_t                    turnElectronBeamOff(int32_t mode);
     virtual status_t                    turnElectronBeamOn(int32_t mode);
+
+    virtual status_t                    setHDMIOutputMode(uint32_t mode);
 
 
             // called when screen needs to turn off
@@ -298,6 +299,7 @@ private:
         LayerVector     layersSortedByZ;
         uint8_t         orientation;
         uint8_t         orientationFlags;
+        uint32_t        HDMIOutputMode;
     };
 
     virtual bool        threadLoop();
