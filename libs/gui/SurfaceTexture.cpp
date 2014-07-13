@@ -218,6 +218,7 @@ status_t SurfaceTexture::updateTexImage() {
 #else
     return SurfaceTexture::updateTexImage(NULL, false);
 #endif
+}
 
 status_t SurfaceTexture::updateTexImage(bool deferConversion) {
     return SurfaceTexture::updateTexImage(NULL, deferConversion);
